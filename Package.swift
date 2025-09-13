@@ -4,19 +4,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "FileDownloadManager",
-    platforms: [.iOS("17.0"), .macOS("15.0")],
+    name: "FileDownloader", // This can remain the same; it’s the package name, not the module name.
+    platforms: [
+        .iOS("17.0"),
+        .macOS("15.0")
+    ],
     products: [
-        // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
-            name: "FileDownloadManager",
-            targets: ["FileDownloader"]),
+            name: "FileDownloadManager", // 👈 This is the name you will import
+            targets: ["FileDownloadManager"] // 👈 Matches the target below
+        ),
     ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "FileDownloader"),
-
+            name: "FileDownloadManager", // 👈 The target that compiles your code
+        ),
     ]
 )
