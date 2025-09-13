@@ -6,7 +6,7 @@ public protocol FileDownloading {
                   onProgress: ((Double) -> Void)?) async throws -> URL
 }
 
-public final class FileDownloader: FileDownloading {
+public final class FileDownloadManager: FileDownloading {
     
     private let session: URLSession
     

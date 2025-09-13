@@ -4,12 +4,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "FileDownloader",
+    name: "FileDownloadManager",
     platforms: [.iOS("17.0"), .macOS("15.0")],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
-            name: "FileDownloader",
+            name: "FileDownloadManager",
             targets: ["FileDownloader"]),
     ],
     targets: [
