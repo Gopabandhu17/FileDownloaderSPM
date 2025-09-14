@@ -15,6 +15,8 @@ public final class FileDownloadManager: FileDownloading {
 //        self.session = session
 //    }
     
+    public init() {}
+    
     public func download(form url: URL, options: DownloadOptions, onProgress: ((Double) -> Void)?) async throws -> URL {
         
         // Build Request
