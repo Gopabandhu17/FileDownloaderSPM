@@ -51,6 +51,7 @@ public final class FileDownloadManager: FileDownloading {
         
         // Build destination URL
         let destinationDirectory = options.destinationDirectory
+        try ensureDirectoryExists(destinationDirectory)
         let destinationURL = destinationDirectory.appendingPathComponent(filename)
         
         // Handle overwrite
@@ -59,12 +60,28 @@ public final class FileDownloadManager: FileDownloading {
             if options.overwrite {
                 try? fileManager.removeItem(at: destinationURL)
             } else {
-                // TODO: create a unique URL and replace with destinationURL here
-                return try moveDownloadFile(from: tempURL, to: destinationURL)
+                // If not overwriting, pickup a unique filename
+                let uniqueURL = makeUniqueURL(for: destinationURL)
+                return try moveDownloadFile(from: tempURL, to: uniqueURL)
             }
         }
         
         return try moveDownloadFile(from: tempURL, to: destinationURL)
+    }
+}
+
+// MARK: - Helpers -
+extension FileDownloadManager {
+    
+    private func ensureDirectoryExists(_ url: URL) throws {
+        let fileManager = FileManager.default
+        if !fileManager.fileExists(atPath: url.path()) {
+            do {
+                try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+            } catch {
+                throw NetworkError.directoryCreationFailed(underlying: error)
+            }
+        }
     }
     
     private func moveDownloadFile(from tempURL: URL, to destinationURL: URL) throws -> URL {
@@ -83,5 +100,22 @@ public final class FileDownloadManager: FileDownloading {
                 throw NetworkError.fileMoveFailed(underlying: error)
             }
         }
+    }
+    
+    private func makeUniqueURL(for url: URL) -> URL {
+        let fileManager = FileManager.default
+        let ext = url.pathExtension
+        let base = url.deletingPathExtension().lastPathComponent
+        let dir = url.deletingLastPathComponent()
+        
+        var candidate = url
+        var index = 1
+        
+        while fileManager.fileExists(atPath: candidate.path()) {
+            let newName = ext.isEmpty ? "\(base)\(index)" : "\(base)\(index).\(ext)"
+            candidate = dir.appendingPathComponent(newName)
+            index += 1
+        }
+        return candidate
     }
 }
