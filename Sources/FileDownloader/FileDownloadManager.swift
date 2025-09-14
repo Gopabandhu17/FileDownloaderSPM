@@ -8,11 +8,12 @@ public protocol FileDownloading {
 
 public final class FileDownloadManager: FileDownloading {
     
-    private let session: URLSession
+    private var session: URLSession = .shared
+    private var delegate: DownloadProgressDelegate?
     
-    public init(session: URLSession = .shared) {
-        self.session = session
-    }
+//    public init(session: URLSession = .shared) {
+//        self.session = session
+//    }
     
     public func download(form url: URL, options: DownloadOptions, onProgress: ((Double) -> Void)?) async throws -> URL {
         
@@ -26,7 +27,8 @@ public final class FileDownloadManager: FileDownloading {
         }
         
         // Delegate for progress
-        let delegate = onProgress != nil ? DownloadProgressDelegate(onProgress: onProgress) : nil
+        self.delegate = onProgress != nil ? DownloadProgressDelegate(onProgress: onProgress) : nil
+        self.session = URLSession(configuration: .default, delegate: self.delegate, delegateQueue: nil)
         
         // Perform download
         let (tempURL, response): (URL, URLResponse)
