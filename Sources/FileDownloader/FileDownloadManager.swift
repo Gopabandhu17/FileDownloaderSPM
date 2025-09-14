@@ -2,22 +2,18 @@ import Foundation
 
 public protocol FileDownloading {
     func download(form url: URL,
-                  options: DownloadOptions,
-                  onProgress: ((Double) -> Void)?) async throws -> URL
+                  options: DownloadOptions) async throws -> URL
 }
 
 public final class FileDownloadManager: FileDownloading {
     
-    private var session: URLSession = .shared
-    private var delegate: DownloadProgressDelegate?
+    private var session: URLSession
     
-//    public init(session: URLSession = .shared) {
-//        self.session = session
-//    }
+    public init(_ session: URLSession) {
+        self.session = session
+    }
     
-    public init() {}
-    
-    public func download(form url: URL, options: DownloadOptions, onProgress: ((Double) -> Void)?) async throws -> URL {
+    public func download(form url: URL, options: DownloadOptions) async throws -> URL {
         
         // Build Request
         var request = URLRequest(url: url)
@@ -28,14 +24,10 @@ public final class FileDownloadManager: FileDownloading {
             request.setValue(value, forHTTPHeaderField: key)
         }
         
-        // Delegate for progress
-        self.delegate = onProgress != nil ? DownloadProgressDelegate(onProgress: onProgress) : nil
-        self.session = URLSession(configuration: .default, delegate: self.delegate, delegateQueue: nil)
-        
         // Perform download
         let (tempURL, response): (URL, URLResponse)
         do {
-            (tempURL, response) = try await session.download(for: request, delegate: delegate)
+            (tempURL, response) = try await session.download(for: request, delegate: nil)
         } catch is CancellationError {
             throw NetworkError.cancelled
         } catch {
