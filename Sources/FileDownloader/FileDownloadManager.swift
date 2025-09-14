@@ -1,19 +1,34 @@
 import Foundation
 
 public protocol FileDownloading {
-    func download(form url: URL,
-                  options: DownloadOptions) async throws -> URL
+    func download(
+        from url: URL,
+        options: DownloadOptions,
+        onProgress: @escaping ((Double) -> Void),
+        onCompletion: @escaping ((Result<URL, Error>) -> Void)
+    )
 }
 
-public final class FileDownloadManager: FileDownloading {
+public final class FileDownloadManager: NSObject, FileDownloading {
     
-    private var session: URLSession
+    private var onProgress: ((Double) -> Void)?
+    private var onCompletion: ((Result<URL, Error>) -> Void)?
+    private var options: DownloadOptions?
+    private var response: URLResponse?
     
-    public init(_ session: URLSession) {
-        self.session = session
-    }
+    private var session: URLSession?
+    private var downloadTask: URLSessionDownloadTask?
     
-    public func download(form url: URL, options: DownloadOptions) async throws -> URL {
+    public func download(
+        from url: URL,
+        options: DownloadOptions,
+        onProgress: @escaping ((Double) -> Void),
+        onCompletion: @escaping ((Result<URL, Error>) -> Void)
+    ) {
+        
+        self.onProgress = onProgress
+        self.onCompletion = onCompletion
+        self.options = options
         
         // Build Request
         var request = URLRequest(url: url)
@@ -24,22 +39,30 @@ public final class FileDownloadManager: FileDownloading {
             request.setValue(value, forHTTPHeaderField: key)
         }
         
-        // Perform download
-        let (tempURL, response): (URL, URLResponse)
-        do {
-            (tempURL, response) = try await session.download(for: request, delegate: nil)
-        } catch is CancellationError {
-            throw NetworkError.cancelled
-        } catch {
-            throw error
+        let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        self.session = session
+        self.downloadTask = session.downloadTask(with: request)
+        self.downloadTask?.resume()
+        
+    }
+}
+
+// MARK: - URLSessionDownloadDelegate -
+extension FileDownloadManager: URLSessionDownloadDelegate, @unchecked Sendable {
+    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        guard let options else {
+            onCompletion?(.failure(NetworkError.invalidResponse))
+            return
         }
         
         // Validate response
         guard let http = response as? HTTPURLResponse else {
-            throw NetworkError.invalidResponse
+            onCompletion?(.failure(NetworkError.invalidResponse))
+            return
         }
         guard (200...299).contains(http.statusCode) else {
-            throw NetworkError.badHTTPStatus(http.statusCode)
+            onCompletion?(.failure(NetworkError.badHTTPStatus(http.statusCode)))
+            return
         }
         
         // Decide filename
@@ -47,7 +70,12 @@ public final class FileDownloadManager: FileDownloading {
         
         // Build destination URL
         let destinationDirectory = options.destinationDirectory
-        try ensureDirectoryExists(destinationDirectory)
+        do {
+            try ensureDirectoryExists(destinationDirectory)
+        } catch {
+            onCompletion?(.failure(error))
+            return
+        }
         let destinationURL = destinationDirectory.appendingPathComponent(filename)
         
         // Handle overwrite
@@ -58,11 +86,23 @@ public final class FileDownloadManager: FileDownloading {
             } else {
                 // If not overwriting, pickup a unique filename
                 let uniqueURL = makeUniqueURL(for: destinationURL)
-                return try moveDownloadFile(from: tempURL, to: uniqueURL)
+                return moveDownloadFile(from: location, to: uniqueURL)
             }
         }
         
-        return try moveDownloadFile(from: tempURL, to: destinationURL)
+        moveDownloadFile(from: location, to: destinationURL)
+    }
+    
+    public func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        onProgress?(progress)
     }
 }
 
@@ -80,20 +120,20 @@ extension FileDownloadManager {
         }
     }
     
-    private func moveDownloadFile(from tempURL: URL, to destinationURL: URL) throws -> URL {
+    private func moveDownloadFile(from tempURL: URL, to destinationURL: URL) {
         let fileManager = FileManager.default
         do {
             // Move is atomic and avoid full copy when possible.
             try fileManager.moveItem(at: tempURL, to: destinationURL)
-            return destinationURL
+            onCompletion?(.success(destinationURL))
         } catch {
             // Fallback : Copy then remove, in case move failed.
             do {
                 try fileManager.copyItem(at: tempURL, to: destinationURL)
                 try? fileManager.removeItem(at: tempURL)
-                return destinationURL
+                onCompletion?(.success(destinationURL))
             } catch {
-                throw NetworkError.fileMoveFailed(underlying: error)
+                onCompletion?(.failure(NetworkError.fileMoveFailed(underlying: error)))
             }
         }
     }
