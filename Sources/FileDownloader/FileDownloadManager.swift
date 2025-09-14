@@ -55,6 +55,8 @@ extension FileDownloadManager: URLSessionDownloadDelegate, @unchecked Sendable {
             return
         }
         
+        // TODO: - Some servers are returning only url of file, so once you get the file location no need to validate it, will find some alternative way to validate the response which will suits all the edge cases
+        /*
         // Validate response
         guard let http = response as? HTTPURLResponse else {
             onCompletion?(.failure(NetworkError.invalidResponse))
@@ -64,6 +66,7 @@ extension FileDownloadManager: URLSessionDownloadDelegate, @unchecked Sendable {
             onCompletion?(.failure(NetworkError.badHTTPStatus(http.statusCode)))
             return
         }
+         */
         
         // Decide filename
         let filename = options.filename ?? UUID().uuidString
