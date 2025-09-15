@@ -157,4 +157,9 @@ extension FileDownloadManager {
         }
         return candidate
     }
+    
+    public func cancel() {
+        downloadTask?.cancel()
+        onCompletion?(.failure(NetworkError.cancelled))
+    }
 }
