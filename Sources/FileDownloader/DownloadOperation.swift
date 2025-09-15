@@ -1,6 +1,6 @@
 import Foundation
 
-class DownloadOperation: Operation, @unchecked Sendable {
+public class DownloadOperation: Operation, @unchecked Sendable {
     private let url: URL
     private let options: DownloadOptions
     private let downloader: FileDownloadManager
@@ -12,7 +12,7 @@ class DownloadOperation: Operation, @unchecked Sendable {
     private var retryCount = 0
     private var maxRetries: Int
     
-    init(
+    public init(
         url: URL,
         options: DownloadOptions,
         downloader: FileDownloadManager,
@@ -29,11 +29,11 @@ class DownloadOperation: Operation, @unchecked Sendable {
         super.init()
     }
     
-    override var isAsynchronous: Bool { true }
-    override var isExecuting: Bool { isTaskExecuting }
-    override var isFinished: Bool { isTaskFinished }
+    public override var isAsynchronous: Bool { true }
+    public override var isExecuting: Bool { isTaskExecuting }
+    public override var isFinished: Bool { isTaskFinished }
     
-    override func start() {
+    public override func start() {
         if isCancelled {
             finish()
             return
@@ -65,7 +65,7 @@ class DownloadOperation: Operation, @unchecked Sendable {
         }
     }
     
-    override func cancel() {
+    public override func cancel() {
         super.cancel()
         downloader.cancel()
         finish()
