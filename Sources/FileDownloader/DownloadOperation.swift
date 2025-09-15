@@ -38,7 +38,11 @@ public class DownloadOperation: Operation, @unchecked Sendable {
             finish()
             return
         }
+        
+        willChangeValue(forKey: "isExecuting")
         isTaskExecuting = true
+        didChangeValue(forKey: "isExecuting")
+        
         mainDownload()
     }
     
@@ -57,11 +61,12 @@ public class DownloadOperation: Operation, @unchecked Sendable {
                 if self.retryCount < self.maxRetries {
                     self.retryCount += 1
                     self.mainDownload()
+                    return
                 } else {
                     self.completion?(.failure(error))
-                    self.finish()
                 }
             }
+            self.finish()
         }
     }
     
