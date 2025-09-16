@@ -56,7 +56,7 @@ public class DownloadOperation: Operation, @unchecked Sendable {
             switch result {
             case .success(let fileURL):
                 self.completion?(.success(fileURL))
-                return
+                self.finish()
             case .failure(let error):
                 if self.retryCount < self.maxRetries {
                     self.retryCount += 1
@@ -64,9 +64,9 @@ public class DownloadOperation: Operation, @unchecked Sendable {
                     return
                 } else {
                     self.completion?(.failure(error))
+                    self.finish()
                 }
             }
-            self.finish()
         }
     }
     
