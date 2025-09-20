@@ -7,6 +7,7 @@ public enum NetworkError: Error, LocalizedError {
     case directoryCreationFailed(underlying: Error)
     case emptyURL
     case cancelled
+    case paused
     
     public var errorDescription: String? {
         switch self {
@@ -22,6 +23,8 @@ public enum NetworkError: Error, LocalizedError {
             return "URL is empty or invalid"
         case .cancelled:
             return "Download was cancelled"
+        case .paused:
+            return "Download was paused"
         }
     }
 }

@@ -11,6 +11,8 @@ public protocol FileDownloading {
 
 public final class FileDownloadManager: NSObject, FileDownloading {
     
+    public static let shared = FileDownloadManager()
+    
     private var onProgress: ((Double) -> Void)?
     private var onCompletion: ((Result<URL, Error>) -> Void)?
     private var options: DownloadOptions?
@@ -18,6 +20,10 @@ public final class FileDownloadManager: NSObject, FileDownloading {
     
     private var session: URLSession?
     private var downloadTask: URLSessionDownloadTask?
+    
+    // private(set) var resumeData: Data?
+    
+    private override init() {}
     
     public func download(
         from url: URL,
@@ -109,7 +115,7 @@ extension FileDownloadManager: URLSessionDownloadDelegate, @unchecked Sendable {
     }
 }
 
-// MARK: - Helpers -
+// MARK: - Disk Helpers -
 extension FileDownloadManager {
     
     private func ensureDirectoryExists(_ url: URL) throws {
@@ -157,6 +163,28 @@ extension FileDownloadManager {
         }
         return candidate
     }
+}
+
+// MARK: - Task Helpers -
+extension FileDownloadManager {
+//    public func pause() {
+//        downloadTask?.cancel { [weak self] resumeData in
+//            guard let self else { return }
+//            self.resumeData = resumeData
+//            onCompletion?(.failure(NetworkError.paused))
+//        }
+//    }
+    
+//    public func resume() {
+//        guard let resumeData else { return }
+//        downloadTask = session?.downloadTask(withResumeData: resumeData, completionHandler: { url, urlResponse, error in
+//            guard let url, error == nil else {
+//                self.onCompletion?(.failure(NetworkError.invalidResponse))
+//                return
+//            }
+//            self.onCompletion?(.success(url))
+//        })
+//    }
     
     public func cancel() {
         downloadTask?.cancel()

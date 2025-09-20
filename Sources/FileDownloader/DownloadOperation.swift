@@ -3,7 +3,6 @@ import Foundation
 public class DownloadOperation: Operation, @unchecked Sendable {
     private let url: URL
     private let options: DownloadOptions
-    private let downloader: FileDownloadManager
     private let progress: ((Double) -> Void)
     private let completion: ((Result<URL, Error>) -> Void)?
     private var isTaskFinished: Bool = false
@@ -12,20 +11,21 @@ public class DownloadOperation: Operation, @unchecked Sendable {
     private var retryCount = 0
     private var maxRetries: Int
     
+    // private var operations: [URL: DownloadOptions] = [:]
+    
     public init(
         url: URL,
         options: DownloadOptions,
-        downloader: FileDownloadManager,
         progress: @escaping ((Double) -> Void),
         completion: ((Result<URL, Error>) -> Void)?,
         maxRetries: Int
     ) {
         self.url = url
         self.options = options
-        self.downloader = downloader
         self.progress = progress
         self.completion = completion
         self.maxRetries = maxRetries
+        // self.operations[url] = options
         super.init()
     }
     
@@ -47,7 +47,7 @@ public class DownloadOperation: Operation, @unchecked Sendable {
     }
     
     private func mainDownload() {
-        downloader.download(from: url, options: options, onProgress: progress) { [weak self] result in
+        FileDownloadManager.shared.download(from: url, options: options, onProgress: progress) { [weak self] result in
             guard let self else { return }
             if self.isCancelled {
                 self.finish()
@@ -72,7 +72,7 @@ public class DownloadOperation: Operation, @unchecked Sendable {
     
     public override func cancel() {
         super.cancel()
-        downloader.cancel()
+        FileDownloadManager.shared.cancel()
         finish()
     }
     
