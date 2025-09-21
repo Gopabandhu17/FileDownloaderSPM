@@ -1,5 +1,6 @@
 import Foundation
 
+@available(*, deprecated, message: "Use DownlaodManager (multi-file) instead of FileDownloadManager for concurrent downloads and disk persistence.")
 public protocol FileDownloading {
     func download(
         from url: URL,
@@ -9,6 +10,7 @@ public protocol FileDownloading {
     )
 }
 
+@available(*, deprecated, message: "Use DownloadManager.share.startDownload(...) instead.")
 public final class FileDownloadManager: NSObject, FileDownloading {
     
     public static let shared = FileDownloadManager()
@@ -21,7 +23,7 @@ public final class FileDownloadManager: NSObject, FileDownloading {
     private var session: URLSession?
     private var downloadTask: URLSessionDownloadTask?
     
-    // private(set) var resumeData: Data?
+    private(set) var resumeData: Data?
     
     private override init() {}
     
@@ -49,7 +51,6 @@ public final class FileDownloadManager: NSObject, FileDownloading {
         self.session = session
         self.downloadTask = session.downloadTask(with: request)
         self.downloadTask?.resume()
-        
     }
 }
 
@@ -167,25 +168,6 @@ extension FileDownloadManager {
 
 // MARK: - Task Helpers -
 extension FileDownloadManager {
-//    public func pause() {
-//        downloadTask?.cancel { [weak self] resumeData in
-//            guard let self else { return }
-//            self.resumeData = resumeData
-//            onCompletion?(.failure(NetworkError.paused))
-//        }
-//    }
-    
-//    public func resume() {
-//        guard let resumeData else { return }
-//        downloadTask = session?.downloadTask(withResumeData: resumeData, completionHandler: { url, urlResponse, error in
-//            guard let url, error == nil else {
-//                self.onCompletion?(.failure(NetworkError.invalidResponse))
-//                return
-//            }
-//            self.onCompletion?(.success(url))
-//        })
-//    }
-    
     public func cancel() {
         downloadTask?.cancel()
         onCompletion?(.failure(NetworkError.cancelled))
