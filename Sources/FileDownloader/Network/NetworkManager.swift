@@ -56,7 +56,7 @@ final class NetworkManager: NSObject {
         sync.sync {
             task = self.tasks[url]?.task
         }
-        task?.resume()
+        task?.suspend()
     }
     
     func resume(url: URL) {
