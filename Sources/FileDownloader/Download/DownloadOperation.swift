@@ -13,6 +13,7 @@ public class DownloadOperation: Operation, @unchecked Sendable {
     private var retryCount = 0
     private var isTaskExecuting = false
     private var isTaskFinished = false
+    private let stateLock = NSLock()
     
     public init(
         url: URL,
@@ -31,8 +32,16 @@ public class DownloadOperation: Operation, @unchecked Sendable {
     
     // MARK: - Operation State Overrides
     public override var isAsynchronous: Bool { true }
-    public override var isExecuting: Bool { isTaskExecuting }
-    public override var isFinished: Bool { isTaskFinished }
+    public override var isExecuting: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return isTaskExecuting
+    }
+    public override var isFinished: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return isTaskFinished
+    }
     
     public override func start() {
         if isCancelled {
@@ -41,13 +50,20 @@ public class DownloadOperation: Operation, @unchecked Sendable {
         }
         
         willChangeValue(forKey: "isExecuting")
+        stateLock.lock()
         isTaskExecuting = true
+        stateLock.unlock()
         didChangeValue(forKey: "isExecuting")
         
         startDownload()
     }
     
     private func startDownload() {
+        guard !isCancelled else {
+            finish()
+            return
+        }
+
         NetworkManager.shared.download(
             url: url,
             options: options,
@@ -57,10 +73,10 @@ public class DownloadOperation: Operation, @unchecked Sendable {
             },
             onCompletion: { [weak self] result in
                 guard let self else { return }
-                if self.isCancelled {
-                    self.finish()
-                    return
-                }
+//                if self.isCancelled {
+//                    self.finish()
+//                    return
+//                }
                 
                 switch result {
                 case .success(let fileURL):
@@ -68,13 +84,17 @@ public class DownloadOperation: Operation, @unchecked Sendable {
                     do {
                         let finalURL = try self.persistTempFile(at: fileURL)
                         self.completion(.success(finalURL))
+                        self.finish()
                     } catch {
                         self.completion(.failure(error))
+                        self.finish()
                     }
                 case .failure(let error):
                     if self.retryCount < self.maxRetries {
                         self.retryCount += 1
-                        self.startDownload()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            self.startDownload()
+                        }
                     } else {
                         self.completion(.failure(error))
                         self.finish()
@@ -86,10 +106,12 @@ public class DownloadOperation: Operation, @unchecked Sendable {
     
     // MARK: - Controls
     public func pause() {
+        guard !isFinished && !isCancelled else { return }
         NetworkManager.shared.pause(url: url)
     }
     
     public func resume() {
+        guard !isFinished && !isCancelled else { return }
         NetworkManager.shared.resume(url: url)
     }
     
@@ -103,8 +125,12 @@ public class DownloadOperation: Operation, @unchecked Sendable {
     private func finish() {
         willChangeValue(forKey: "isExecuting")
         willChangeValue(forKey: "isFinished")
+        
+        stateLock.lock()
         isTaskExecuting = false
         isTaskFinished = true
+        stateLock.unlock()
+        
         didChangeValue(forKey: "isExecuting")
         didChangeValue(forKey: "isFinished")
     }

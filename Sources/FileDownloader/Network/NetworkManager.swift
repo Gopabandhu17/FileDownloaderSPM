@@ -17,6 +17,8 @@ final class NetworkManager: NSObject {
     // ✅ Set delegate = self
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 300
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
     
@@ -50,56 +52,58 @@ final class NetworkManager: NSObject {
     }
     
     func pause(url: URL) {
+        var task: URLSessionDownloadTask? = nil
         sync.sync {
-            guard let entry = tasks[url] else { return }
-            entry.task.suspend()
+            task = self.tasks[url]?.task
         }
+        task?.resume()
     }
     
     func resume(url: URL) {
-        var needToResumeDataPath: Bool = false
+        
+        var shouldCreateNewTask: Bool = false
+        var resumeData: Data?
+        var entry: TaskEntry?
+        
         sync.sync {
-            if let entry = tasks[url] {
-                switch entry.task.state {
+            entry = tasks[url]
+            if let currentEntry = entry {
+                switch currentEntry.task.state {
                 case .suspended:
-                    entry.task.resume()
-                case .running:
-                    break
+                    currentEntry.task.resume()
+                    return
+                case .running: return
                 default:
-                    if entry.resumeData != nil {
-                        needToResumeDataPath = true
+                    if let data = currentEntry.resumeData {
+                        shouldCreateNewTask = true
+                        resumeData = data
                     }
                 }
             }
         }
         
-        if needToResumeDataPath {
-            sync.sync {
-                guard let entry = tasks[url], let resumeData = entry.resumeData else { return }
-                let task = session.downloadTask(withResumeData: resumeData)
-                var updated = entry
-                updated.task = task
-                updated.resumeData = nil
-                tasks[url] = updated
-                let finalUpdated = updated
-                sync.sync(flags: .barrier) {
-                    self.tasks[url] = finalUpdated
-                }
-                task.resume()
+        if shouldCreateNewTask,
+           let resumeData = resumeData,
+           let entry = entry {
+            let newTask = session.downloadTask(withResumeData: resumeData)
+            var updatedEntry = entry
+            updatedEntry.task = newTask
+            updatedEntry.resumeData = nil
+            
+            sync.sync(flags: .barrier) {
+                self.tasks[url] = updatedEntry
             }
+            
+            newTask.resume()
         }
     }
     
     func cancel(url: URL) {
         var entry: TaskEntry?
-        sync.sync {
-            entry = self.tasks[url]
+        sync.sync(flags: .barrier) {
+            entry = self.tasks.removeValue(forKey: url)
         }
-        guard let entry else { return }
-        entry.task.cancel()
-        sync.async(flags: .barrier) {
-            self.tasks.removeValue(forKey: url)
-        }
+        entry?.task.cancel()
     }
 }
 
@@ -113,14 +117,13 @@ extension NetworkManager: URLSessionDownloadDelegate, @unchecked Sendable {
     ) {
         guard let url = downloadTask.originalRequest?.url else { return }
         var entry: TaskEntry?
-        sync.sync {
-            entry = tasks[url]
+        
+        sync.sync(flags: .barrier) {
+            entry = self.tasks.removeValue(forKey: url)
         }
+        
         guard let entry else { return }
         entry.completion(.success(location))
-        sync.async(flags: .barrier) {
-            self.tasks.removeValue(forKey: url)
-        }
     }
     
     func urlSession(
@@ -148,15 +151,26 @@ extension NetworkManager: URLSessionDownloadDelegate, @unchecked Sendable {
     ) {
         guard let url = task.originalRequest?.url else { return }
         var entry: TaskEntry?
-        sync.sync {
-            entry = tasks[url]
+        sync.sync(flags: .barrier) {
+            entry = self.tasks.removeValue(forKey: url)
         }
         guard let entry else { return }
         if let error {
-            entry.completion(.failure(error))
-            sync.async(flags: .barrier) {
-                self.tasks.removeValue(forKey: url)
+            if let urlError = error as? URLError,
+               urlError.code == .cancelled {
+                // Don't call the completion for cancelled task
+                return
             }
+            entry.completion(.failure(error))
         }
+    }
+    
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didResumeAtOffset fileOffset: Int64,
+        expectedTotalBytes: Int64
+    ) {
+        // Handle resume offset if needed
     }
 }

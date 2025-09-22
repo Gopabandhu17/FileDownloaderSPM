@@ -8,6 +8,10 @@ public enum NetworkError: Error, LocalizedError {
     case emptyURL
     case cancelled
     case paused
+    case duplicateDownload
+    case invalidRetryCount
+    case invalidTimeout
+    case networkUnavailable
     
     public var errorDescription: String? {
         switch self {
@@ -25,6 +29,14 @@ public enum NetworkError: Error, LocalizedError {
             return "Download was cancelled"
         case .paused:
             return "Download was paused"
+        case .duplicateDownload:
+            return "Download already in progress for this URL"
+        case .invalidRetryCount:
+            return "Invalid retry count specified"
+        case .invalidTimeout:
+            return "Invalid timeout value specified"
+        case .networkUnavailable:
+            return "Network is unavailable"
         }
     }
 }
