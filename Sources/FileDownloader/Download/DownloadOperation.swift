@@ -64,60 +64,64 @@ public class DownloadOperation: Operation, @unchecked Sendable {
             return
         }
 
-        NetworkManager.shared.download(
-            url: url,
-            options: options,
-            onProgress: { [weak self] progress in
-                guard let self, !self.isCancelled else { return }
-                self.progress(progress)
-            },
-            onCompletion: { [weak self] result in
-                guard let self else { return }
-//                if self.isCancelled {
-//                    self.finish()
-//                    return
-//                }
-                
-                switch result {
-                case .success(let fileURL):
-                    // persist temp file to final destination
-                    do {
-                        let finalURL = try self.persistTempFile(at: fileURL)
-                        self.completion(.success(finalURL))
-                        self.finish()
-                    } catch {
-                        self.completion(.failure(error))
-                        self.finish()
-                    }
-                case .failure(let error):
-                    if self.retryCount < self.maxRetries {
-                        self.retryCount += 1
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            self.startDownload()
+        Task {
+            await NetworkManager.shared.download(
+                url: url,
+                options: options,
+                onProgress: { [weak self] progress in
+                    guard let self, !self.isCancelled else { return }
+                    self.progress(progress)
+                },
+                onCompletion: { [weak self] result in
+                    guard let self else { return }
+                    
+                    switch result {
+                    case .success(let fileURL):
+                        // persist temp file to final destination
+                        do {
+                            let finalURL = try self.persistTempFile(at: fileURL)
+                            self.completion(.success(finalURL))
+                            self.finish()
+                        } catch {
+                            self.completion(.failure(error))
+                            self.finish()
                         }
-                    } else {
-                        self.completion(.failure(error))
-                        self.finish()
+                    case .failure(let error):
+                        if self.retryCount < self.maxRetries {
+                            self.retryCount += 1
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                self.startDownload()
+                            }
+                        } else {
+                            self.completion(.failure(error))
+                            self.finish()
+                        }
                     }
                 }
-            }
-        )
+            )
+        }
     }
     
     // MARK: - Controls
     public func pause() {
         guard !isFinished && !isCancelled else { return }
-        NetworkManager.shared.pause(url: url)
+        Task {
+            await NetworkManager.shared.pause(url: url)
+        }
     }
     
     public func resume() {
         guard !isFinished && !isCancelled else { return }
-        NetworkManager.shared.resume(url: url)
+        Task {
+            await NetworkManager.shared.resume(url: url)
+        }
     }
     
     public override func cancel() {
         super.cancel()
-        NetworkManager.shared.cancel(url: url)
+        Task {
+            await NetworkManager.shared.cancel(url: url)
+        }
         finish()
     }
     

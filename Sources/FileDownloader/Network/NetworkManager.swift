@@ -1,34 +1,94 @@
 import Foundation
 
-private struct TaskEntry: @unchecked Sendable {
+private actor TaskEntry {
     var task: URLSessionDownloadTask
     let options: DownloadOptions
-    let progress: (Double) -> Void
-    let completion: (Result<URL, Error>) -> Void
+    let progress: @Sendable (Double) -> Void
+    let completion: @Sendable (Result<URL, Error>) -> Void
     var resumeData: Data?
     var lastProgressBytes: Int64 = 0
+    
+    init(
+        task: URLSessionDownloadTask,
+        options: DownloadOptions,
+        progress: @escaping @Sendable (Double) -> Void,
+        completion: @escaping @Sendable (Result<URL, Error>) -> Void,
+        resumeData: Data? = nil
+    ) {
+        self.task = task
+        self.options = options
+        self.progress = progress
+        self.completion = completion
+        self.resumeData = resumeData
+    }
+    
+    // MARK: Task Control
+    func pause() {
+        task.suspend()
+    }
+    
+    func resume(session: URLSession) {
+        switch task.state {
+        case .suspended:
+            task.resume()
+        case .running:
+            break
+        default:
+            // Task is completed or running, try to resume data if available
+            if let data = resumeData {
+                let newTask = session.downloadTask(withResumeData: data)
+                task = newTask
+                resumeData = nil
+                newTask.resume()
+            }
+        }
+    }
+    
+    func cancel() {
+        task.cancel()
+    }
+    
+    // MARK: progress and completion
+    func reportProgress(_ progressValue: Double) {
+        progress(progressValue)
+    }
+    
+    func complete(with result: Result<URL, Error>) {
+        completion(result)
+    }
+    
+    // MARK: State access
+    func getTask() -> URLSessionDownloadTask {
+        return task
+    }
+    
+    func storeResumeData(_ data: Data) {
+        resumeData = data
+    }
 }
 
-final class NetworkManager: NSObject {
+actor NetworkManager {
     
     static let shared = NetworkManager()
-    private override init() {}
+    private init() {}
     
-    // ✅ Set delegate = self
+    private lazy var delegate: NetworkManagerDelegate = NetworkManagerDelegate(manager: self)
+    
+    // ✅ Set delegate = proxy
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 300
-        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        return URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
     }()
     
     private var tasks: [URL: TaskEntry] = [:]
-    private let sync: DispatchQueue = DispatchQueue(label: "NetworkManager.tasks", attributes: .concurrent)
+    // private let sync: DispatchQueue = DispatchQueue(label: "NetworkManager.tasks", attributes: .concurrent)
     
     func download(url: URL,
                   options: DownloadOptions,
-                  onProgress: @escaping ((Double) -> Void),
-                  onCompletion: @escaping ((Result<URL, Error>) -> Void)) {
+                  onProgress: @escaping @Sendable (Double) -> Void,
+                  onCompletion: @escaping @Sendable (Result<URL, Error>) -> Void) {
         
         // Build Request
         var request = URLRequest(url: url)
@@ -41,89 +101,80 @@ final class NetworkManager: NSObject {
         
         let task = session.downloadTask(with: request)
         let entry = TaskEntry(task: task,
-                               options: options,
-                               progress: onProgress,
-                               completion: onCompletion,
-                               resumeData: nil)
-        sync.sync(flags: .barrier) {
-            self.tasks[url] = entry
-        }
+                              options: options,
+                              progress: onProgress,
+                              completion: onCompletion,
+                              resumeData: nil)
+        self.tasks[url] = entry
         task.resume()
     }
     
     func pause(url: URL) {
-        var task: URLSessionDownloadTask? = nil
-        sync.sync {
-            task = self.tasks[url]?.task
+        guard let entry: TaskEntry = self.tasks[url] else { return }
+        Task {
+            await entry.pause()
         }
-        task?.suspend()
     }
     
     func resume(url: URL) {
-        
-        var shouldCreateNewTask: Bool = false
-        var resumeData: Data?
-        var entry: TaskEntry?
-        
-        sync.sync {
-            entry = tasks[url]
-            if let currentEntry = entry {
-                switch currentEntry.task.state {
-                case .suspended:
-                    currentEntry.task.resume()
-                    return
-                case .running: return
-                default:
-                    if let data = currentEntry.resumeData {
-                        shouldCreateNewTask = true
-                        resumeData = data
-                    }
-                }
-            }
-        }
-        
-        if shouldCreateNewTask,
-           let resumeData = resumeData,
-           let entry = entry {
-            let newTask = session.downloadTask(withResumeData: resumeData)
-            var updatedEntry = entry
-            updatedEntry.task = newTask
-            updatedEntry.resumeData = nil
-            
-            sync.sync(flags: .barrier) {
-                self.tasks[url] = updatedEntry
-            }
-            
-            newTask.resume()
+        guard let entry: TaskEntry = self.tasks[url] else { return }
+        Task {
+            await entry.resume(session: self.session)
         }
     }
     
     func cancel(url: URL) {
-        var entry: TaskEntry?
-        sync.sync(flags: .barrier) {
-            entry = self.tasks.removeValue(forKey: url)
+        guard let entry: TaskEntry = self.tasks[url] else { return }
+        Task {
+            await entry.cancel()
         }
-        entry?.task.cancel()
+    }
+    
+    // MARK: Internal methods for Delegate Callbacks
+    func handleDownloadFinished(url: URL, location: URL) {
+        guard let entry = tasks.removeValue(forKey: url) else { return }
+        Task {
+            await entry.complete(with: .success(location))
+        }
+    }
+    
+    func handleProgress(url: URL, progress: Double) {
+        guard let entry: TaskEntry = self.tasks[url] else { return }
+        Task {
+            await entry.reportProgress(progress)
+        }
+    }
+    
+    func handleTaskCompleted(url: URL, error: Error?) {
+        guard let entry: TaskEntry = self.tasks.removeValue(forKey: url) else { return }
+        if let error {
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                return
+            }
+            Task {
+                await entry.complete(with: .failure(error))
+            }
+        }
     }
 }
 
-// MARK: - URLSessionDownloadDelegate
-extension NetworkManager: URLSessionDownloadDelegate, @unchecked Sendable {
+private final class NetworkManagerDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     
-    public func urlSession(
+    private let manager: NetworkManager
+    
+    init(manager: NetworkManager) {
+        self.manager = manager
+    }
+    
+    func urlSession(
         _ session: URLSession,
         downloadTask: URLSessionDownloadTask,
         didFinishDownloadingTo location: URL
     ) {
         guard let url = downloadTask.originalRequest?.url else { return }
-        var entry: TaskEntry?
-        
-        sync.sync(flags: .barrier) {
-            entry = self.tasks.removeValue(forKey: url)
+        Task {
+            await manager.handleDownloadFinished(url: url, location: location)
         }
-        
-        guard let entry else { return }
-        entry.completion(.success(location))
     }
     
     func urlSession(
@@ -135,42 +186,20 @@ extension NetworkManager: URLSessionDownloadDelegate, @unchecked Sendable {
     ) {
         guard totalBytesExpectedToWrite > 0,
               let url = downloadTask.originalRequest?.url else { return }
-        var entry: TaskEntry?
-        sync.sync {
-            entry = tasks[url]
-        }
-        guard let entry else { return }
         let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-        entry.progress(progress)
+        Task {
+            await manager.handleProgress(url: url, progress: progress)
+        }
     }
     
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
-        didCompleteWithError error: Error?
+        didCompleteWithError error: (any Error)?
     ) {
         guard let url = task.originalRequest?.url else { return }
-        var entry: TaskEntry?
-        sync.sync(flags: .barrier) {
-            entry = self.tasks.removeValue(forKey: url)
+        Task {
+            await manager.handleTaskCompleted(url: url, error: error)
         }
-        guard let entry else { return }
-        if let error {
-            if let urlError = error as? URLError,
-               urlError.code == .cancelled {
-                // Don't call the completion for cancelled task
-                return
-            }
-            entry.completion(.failure(error))
-        }
-    }
-    
-    func urlSession(
-        _ session: URLSession,
-        downloadTask: URLSessionDownloadTask,
-        didResumeAtOffset fileOffset: Int64,
-        expectedTotalBytes: Int64
-    ) {
-        // Handle resume offset if needed
     }
 }

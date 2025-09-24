@@ -1,6 +1,6 @@
 import Foundation
 
-public struct DownloadOptions {
+public struct DownloadOptions: Sendable {
     public var destinationDirectory: URL
     public var filename: String?
     public var overwrite: Bool

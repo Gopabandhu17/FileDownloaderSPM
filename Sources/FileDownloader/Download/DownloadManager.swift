@@ -1,12 +1,11 @@
 import Foundation
 
-public final class DownloadManager: @unchecked Sendable {
+public actor DownloadManager {
     
     public static let shared = DownloadManager()
     
     private let queue: OperationQueue
     private var operations: [URL: DownloadOperation] = [:]
-    private var sync = DispatchQueue(label: "DownloadManager.operations", attributes: .concurrent)
     
     private init() {
         queue = OperationQueue()
@@ -17,8 +16,8 @@ public final class DownloadManager: @unchecked Sendable {
     public func startDownload(
         from url: URL,
         options: DownloadOptions,
-        progress: @escaping (Double) -> Void,
-        completion: @escaping (Result<URL, Error>) -> Void,
+        progress: @escaping @Sendable (Double) -> Void,
+        completion: @escaping @Sendable (Result<URL, Error>) -> Void,
         maxRetries: Int = 3
     ) {
         // Validate inputs
@@ -33,11 +32,7 @@ public final class DownloadManager: @unchecked Sendable {
         }
         
         // Check for duplicate download
-        var isDuplicate = false
-        sync.sync {
-            isDuplicate = operations[url] != nil
-        }
-        if isDuplicate {
+        guard operations[url] == nil else {
             completion(.failure(NetworkError.duplicateDownload))
             return
         }
@@ -50,33 +45,24 @@ public final class DownloadManager: @unchecked Sendable {
                 guard let self else { return }
                 completion(result)
                 // Remove finished operation using thread-safe barrier write
-                self.sync.async(flags: .barrier) {
-                    self.operations.removeValue(forKey: url)
+                Task {
+                    await self.removeFinishedOperation(for: url)
                 }
             },
             maxRetries: maxRetries
         )
         
-        // Add operation and start it automatically
-        sync.async(flags: .barrier) {
-            guard self.operations[url] == nil else {
-                operation.cancel()
-                completion(.failure(NetworkError.duplicateDownload))
-                return
-            }
-            
-            self.operations[url] = operation
-            self.queue.addOperation(operation)
-        }
+        self.operations[url] = operation
+        self.queue.addOperation(operation)
+    }
+    
+    private func removeFinishedOperation(for url: URL) {
+        operations.removeValue(forKey: url)
     }
     
     // MARK: - Pause Download
     public func pauseDownload(for url: URL) {
-        var operation: DownloadOperation?
-        sync.sync {
-            operation = self.operations[url]
-        }
-        guard let operation,
+        guard let operation = operations[url],
               !operation.isFinished,
               !operation.isCancelled else { return }
         operation.pause()
@@ -84,11 +70,7 @@ public final class DownloadManager: @unchecked Sendable {
     
     // MARK: - Resume Download
     public func resumeDownload(for url: URL) {
-        var operation: DownloadOperation?
-        sync.sync {
-            operation = self.operations[url]
-        }
-        guard let operation,
+        guard let operation = operations[url],
               !operation.isFinished,
               !operation.isCancelled else { return }
         operation.resume()
@@ -96,43 +78,26 @@ public final class DownloadManager: @unchecked Sendable {
     
     // MARK: - Cancel Download
     public func cancelDownload(for url: URL) {
-        var operation: DownloadOperation?
-        // Automatically read and remove operation
-        sync.sync {
-            operation = self.operations.removeValue(forKey: url)
-        }
-        // Cancel the operation outside the lock
+        let operation = self.operations.removeValue(forKey: url)
         operation?.cancel()
     }
     
     // MARK: - Cancel All
     public func cancelAllDownloads() {
-        var operationsToCancel: [DownloadOperation] = []
-        
-        // Automatically get all operation and clear dictionary
-        sync.sync(flags: .barrier) {
-            operationsToCancel = Array(self.operations.values)
-            operations.removeAll()
-        }
-        
-        // Cancels operation outside the lock
+        let operationsToCancel: [DownloadOperation] = Array(self.operations.values)
+        operations.removeAll()
         for operation in operationsToCancel {
             operation.cancel()
         }
-        
-        // Also cancel any operations still in the queue
         queue.cancelAllOperations()
     }
     
     // MARK: - Introspection & Configuration
     public func activeDownloadURLs(for url: URL) -> Bool {
-        var isActive: Bool = false
-        sync.sync {
-            if let operation = operations[url] {
-                isActive = !operation.isFinished && !operation.isCancelled
-            }
+        if let operation = operations[url] {
+            return !operation.isFinished && !operation.isCancelled
         }
-        return isActive
+        return false
     }
     
     public func setMaxConcurrentDownloads(_ count: Int) {
