@@ -74,31 +74,34 @@ public class DownloadOperation: Operation, @unchecked Sendable {
                 },
                 onCompletion: { [weak self] result in
                     guard let self else { return }
-                    
-                    switch result {
-                    case .success(let fileURL):
-                        // persist temp file to final destination
-                        do {
-                            let finalURL = try self.persistTempFile(at: fileURL)
-                            self.completion(.success(finalURL))
-                            self.finish()
-                        } catch {
-                            self.completion(.failure(error))
-                            self.finish()
-                        }
-                    case .failure(let error):
-                        if self.retryCount < self.maxRetries {
-                            self.retryCount += 1
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                self.startDownload()
-                            }
-                        } else {
-                            self.completion(.failure(error))
-                            self.finish()
-                        }
-                    }
+                    self.handleDownloadResults(result)
                 }
             )
+        }
+    }
+    
+    private func handleDownloadResults(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let fileURL):
+            // persist temp file to final destination
+            do {
+                let finalURL = try self.persistTempFile(at: fileURL)
+                self.completion(.success(finalURL))
+                self.finish()
+            } catch {
+                self.completion(.failure(error))
+                self.finish()
+            }
+        case .failure(let error):
+            if self.retryCount < self.maxRetries {
+                self.retryCount += 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.startDownload()
+                }
+            } else {
+                self.completion(.failure(error))
+                self.finish()
+            }
         }
     }
     

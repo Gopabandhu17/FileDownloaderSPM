@@ -131,11 +131,40 @@ actor NetworkManager {
     }
     
     // MARK: Internal methods for Delegate Callbacks
-    func handleDownloadFinished(url: URL, location: URL) {
-        guard let entry = tasks.removeValue(forKey: url) else { return }
+    public func handleDownloadFinished(url: URL, location: URL) {
+        guard let entry = tasks[url] else { return }
         Task {
             await entry.complete(with: .success(location))
         }
+        tasks.removeValue(forKey: url)
+    }
+    
+    public func handleDownlaodFinishedWithData(url: URL, tempData: Data?) {
+        guard let entry = tasks[url] else { return }
+        
+        if let data = tempData {
+            // Create a temporary file with our data
+            let tempURL = FileManager.default.temporaryDirectory
+                .appending(component: "download_\(UUID().uuidString)")
+                .appendingPathExtension("tmp")
+            
+            do {
+                try data.write(to: tempURL)
+                Task {
+                    await entry.complete(with: .success(tempURL))
+                }
+            } catch {
+                Task {
+                    await entry.complete(with: .failure(NetworkError.fileMoveFailed(underlying: error)))
+                }
+            }
+        } else {
+            Task {
+                await entry.complete(with: .failure(NetworkError.invalidResponse))
+            }
+        }
+        
+        tasks.removeValue(forKey: url)
     }
     
     func handleProgress(url: URL, progress: Double) {
@@ -172,8 +201,20 @@ private final class NetworkManagerDelegate: NSObject, URLSessionDownloadDelegate
         didFinishDownloadingTo location: URL
     ) {
         guard let url = downloadTask.originalRequest?.url else { return }
+        
+        let tempData: Data?
+        
+        do {
+            tempData = try Data(contentsOf: location)
+        } catch {
+            Task {
+                await manager.handleDownloadFinished(url: url, location: location)
+            }
+            return
+        }
+        
         Task {
-            await manager.handleDownloadFinished(url: url, location: location)
+            await manager.handleDownlaodFinishedWithData(url: url, tempData: tempData)
         }
     }
     
