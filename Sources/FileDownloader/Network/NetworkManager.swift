@@ -143,19 +143,14 @@ actor NetworkManager {
         guard let entry = tasks[url] else { return }
         
         if let data = tempData {
-            // Create a temporary file with our data
-            let tempURL = FileManager.default.temporaryDirectory
-                .appending(component: "download_\(UUID().uuidString)")
-                .appendingPathExtension("tmp")
-            
-            do {
-                try data.write(to: tempURL)
-                Task {
+            Task {
+                do {
+                    let tempURL = try await DiskManager.shared.writeTempFile(data: data)
                     await entry.complete(with: .success(tempURL))
-                }
-            } catch {
-                Task {
-                    await entry.complete(with: .failure(NetworkError.fileMoveFailed(underlying: error)))
+                } catch {
+                    Task {
+                        await entry.complete(with: .failure(NetworkError.invalidResponse))
+                    }
                 }
             }
         } else {

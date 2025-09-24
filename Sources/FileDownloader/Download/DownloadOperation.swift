@@ -83,14 +83,20 @@ public class DownloadOperation: Operation, @unchecked Sendable {
     private func handleDownloadResults(_ result: Result<URL, Error>) {
         switch result {
         case .success(let fileURL):
-            // persist temp file to final destination
-            do {
-                let finalURL = try self.persistTempFile(at: fileURL)
-                self.completion(.success(finalURL))
-                self.finish()
-            } catch {
-                self.completion(.failure(error))
-                self.finish()
+            Task {
+                do {
+                    let finalURL = try await DiskManager.shared.persistTempFile(
+                        from: fileURL,
+                        to: options.destinationDirectory,
+                        filename: options.filename,
+                        overwrite: options.overwrite
+                    )
+                    self.completion(.success(finalURL))
+                    finish()
+                } catch {
+                    self.completion(.failure(error))
+                    self.finish()
+                }
             }
         case .failure(let error):
             if self.retryCount < self.maxRetries {
@@ -140,64 +146,5 @@ public class DownloadOperation: Operation, @unchecked Sendable {
         
         didChangeValue(forKey: "isExecuting")
         didChangeValue(forKey: "isFinished")
-    }
-}
-
-extension DownloadOperation {
-    
-    private func persistTempFile(at tempURL: URL) throws -> URL {
-        let fileManager = FileManager.default
-        try ensureDirectoryExists(options.destinationDirectory)
-        let filename = options.filename ?? UUID().uuidString
-        var destination = options.destinationDirectory.appendingPathComponent(filename)
-        
-        if fileManager.fileExists(atPath: destination.path()) {
-            if options.overwrite {
-                try? fileManager.removeItem(at: destination)
-            } else {
-                destination = makeUniqueURL(for: destination)
-            }
-        }
-        
-        do {
-            try fileManager.moveItem(at: tempURL, to: destination)
-            return destination
-        } catch {
-            do {
-                try fileManager.copyItem(at: tempURL, to: destination)
-                try? fileManager.removeItem(at: tempURL)
-                return destination
-            } catch {
-                throw NetworkError.fileMoveFailed(underlying: error)
-            }
-        }
-    }
-    
-    private func ensureDirectoryExists(_ url: URL) throws {
-        let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: url.path()) {
-            do {
-                try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-            } catch {
-                throw NetworkError.directoryCreationFailed(underlying: error)
-            }
-        }
-    }
-    
-    private func makeUniqueURL(for url: URL) -> URL {
-        let fileManager = FileManager.default
-        let ext = url.pathExtension
-        let base = url.deletingPathExtension().lastPathComponent
-        let dir = url.deletingLastPathComponent()
-        
-        var candidate = url
-        var index = 1
-        
-        while fileManager.fileExists(atPath: candidate.path()) {
-            let newName = ext.isEmpty ? "\(base)\(index)" : "\(base)\(index).\(ext)"
-            candidate = dir.appendingPathComponent(newName)
-            index += 1
-        }
-        return candidate
     }
 }
