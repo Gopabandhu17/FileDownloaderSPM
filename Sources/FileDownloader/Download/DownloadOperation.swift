@@ -1,7 +1,5 @@
 import Foundation
 
-import Foundation
-
 public class DownloadOperation: Operation, @unchecked Sendable {
     
     private let url: URL

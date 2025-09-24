@@ -49,33 +49,6 @@ actor DiskManager {
         }
     }
     
-    // TODO: - This will be removed later, if come in no use
-    /*
-    func removeFileIfExists(at url: URL) -> Bool {
-        let fileManager = FileManager.default
-        
-        guard fileManager.fileExists(atPath: url.path()) else {
-            return true
-        }
-        
-        do {
-            try fileManager.removeItem(at: url)
-            return true
-        } catch {
-            return false
-        }
-    }
-    
-    func getFileSize(at url: URL) -> Int64? {
-        do {
-            let attributes = try FileManager.default.attributesOfItem(atPath: url.path())
-            return attributes[.size] as? Int64
-        } catch {
-            return nil
-        }
-    }
-     */
-    
     private func makeUniqueURL(for url: URL) -> URL {
         let fileManager = FileManager.default
         let ext = url.pathExtension
